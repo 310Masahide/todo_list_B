@@ -1,24 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-
-declare global {
-  interface Window {
-    storage: {
-      get: (key: string) => Promise<{ value: string } | null>;
-      set: (key: string, value: string) => Promise<void>;
-    };
-  }
-}
-
-type Todo = {
-  title: string;
-  readonly id: number;
-  progress: number;
-  startDate: string;
-  dueDate: string;
-  detail: string;
-  delete_flg: boolean;
-};
+import { Todo } from '../type';
 
 const Calendar: React.FC = () => {
   const navigate = useNavigate();
@@ -108,7 +90,7 @@ const Calendar: React.FC = () => {
   }, [todos, initialDate, navigate]);
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
+    <div style={{ width: '100%', minHeight: '100vh', boxSizing: 'border-box', padding: '20px', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ fontSize: '18px', fontWeight: 'bold', color: '#000', margin: 0 }}>カレンダー</h1>
         <button

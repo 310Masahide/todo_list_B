@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
 
 declare global {
   interface Window {
@@ -29,9 +28,9 @@ const Todo: React.FC = () => {
   const [filter, setFilter] = useState<Filter>('all');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [editingDateField, setEditingDateField] = useState<{todoId: number, field: 'startDate' | 'dueDate', position: {top: number, left: number}} | null>(null);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const calendarRef = useRef<any>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -80,12 +79,78 @@ const Todo: React.FC = () => {
   }, [nextId]);
 
   useEffect(() => {
-    const state = location.state as { selectedDate?: string; expandTodoId?: number } | null;
-    if (state?.selectedDate) setSelectedDate(state.selectedDate);
-    if (typeof state?.expandTodoId === 'number') {
-      setExpandedIds(prev => new Set(prev).add(state.expandTodoId!));
+    if (showCalendar && !editingDateField) {
+      loadFullCalendar();
     }
-  }, [location.state]);
+  }, [showCalendar, editingDateField, todos]);
+
+  const loadFullCalendar = () => {
+    if (calendarRef.current && !editingDateField) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js';
+      script.onload = () => {
+        const FullCalendar = (window as any).FullCalendar;
+        if (FullCalendar) {
+          const events = todos
+            .filter(todo => !todo.delete_flg)
+            .map(todo => {
+              const endDate = new Date(todo.dueDate);
+              endDate.setDate(endDate.getDate() + 1);
+              
+              return {
+                id: todo.id.toString(),
+                title: `• ${todo.title}`,
+                start: todo.startDate,
+                end: endDate.toISOString().split('T')[0],
+                allDay: true,
+                backgroundColor: '#ff8c42',
+                borderColor: '#ff8c42',
+                textColor: '#fff'
+              };
+            });
+
+          calendarRef.current.innerHTML = '';
+          const calendar = new FullCalendar.Calendar(calendarRef.current, {
+            initialDate: selectedDate,
+            editable: false,
+            selectable: true,
+            dayMaxEvents: true,
+            headerToolbar: {
+              left: 'title',
+              center: '',
+              right: 'today prev,next'
+            },
+            buttonText: {
+              today: '今日'
+            },
+            locale: 'ja',
+            dayCellContent: function(arg: any) {
+              return arg.dayNumberText.replace('日', '') + '日';
+            },
+            events: events,
+            dateClick: function(info: any) {
+              setSelectedDate(info.dateStr);
+              setShowCalendar(false);
+            },
+            eventClick: function(info: any) {
+              const todoId = parseInt(info.event.id);
+              const todo = todos.find(t => t.id === todoId);
+              if (todo) {
+                setSelectedDate(todo.startDate);
+                setShowCalendar(false);
+                // 編集画面を開く
+                setTimeout(() => {
+                  toggleExpand(todoId);
+                }, 100);
+              }
+            }
+          });
+          calendar.render();
+        }
+      };
+      document.head.appendChild(script);
+    }
+  };
 
   const handleSubmit = () => {
     if (!text.trim()) return;
@@ -161,6 +226,7 @@ const Todo: React.FC = () => {
     const currentDate = new Date(selectedDate);
     currentDate.setDate(currentDate.getDate() + days);
     setSelectedDate(currentDate.toISOString().split('T')[0]);
+    setShowCalendar(false);
   };
 
   const formatDate = (dateStr: string) => {
@@ -173,23 +239,28 @@ const Todo: React.FC = () => {
     return `${year}年${month}月${day}日（${weekday}）`;
   };
 
-  const openDateFieldCalendar = (todoId: number, field: 'startDate' | 'dueDate', event: React.MouseEvent) => {
+  const openDateFieldCalendar = (todoId: number, field: 'startDate' | 'dueDate', currentDate: string, event: React.MouseEvent) => {
     const rect = (event.target as HTMLElement).getBoundingClientRect();
     
     // 同じフィールドをクリックした場合は閉じる
-    if (editingDateField?.todoId === todoId && editingDateField?.field === field) {
+    if (editingDateField && 
+        editingDateField.todoId === todoId && 
+        editingDateField.field === field && 
+        showCalendar) {
+      setShowCalendar(false);
       setEditingDateField(null);
-      return;
+    } else {
+      // 違うフィールドまたは閉じている場合は開く
+      setEditingDateField({ 
+        todoId, 
+        field,
+        position: {
+          top: rect.bottom + window.scrollY,
+          left: rect.left + window.scrollX
+        }
+      });
+      setShowCalendar(true);
     }
-    // 違うフィールドまたは閉じている場合は開く
-    setEditingDateField({ 
-      todoId, 
-      field,
-      position: {
-        top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX
-      }
-    });
   };
 
   const getDaysInMonth = (year: number, month: number) => {
@@ -223,6 +294,7 @@ const Todo: React.FC = () => {
       
       handleTodo(editingDateField.todoId, editingDateField.field, dateStr);
       setEditingDateField(null);
+      setShowCalendar(false);
     }
   };
 
@@ -391,7 +463,7 @@ const Todo: React.FC = () => {
         <button
           onClick={() => {
             setEditingDateField(null);
-            navigate('/calendar', { state: { initialDate: selectedDate } });
+            setShowCalendar(!showCalendar);
           }}
           style={{
             padding: '8px 16px',
@@ -423,7 +495,44 @@ const Todo: React.FC = () => {
         </button>
       </div>
 
-      {editingDateField && <SimpleCalendar />}
+      {showCalendar && (
+        editingDateField ? (
+          <SimpleCalendar />
+        ) : (
+          <div style={{ marginBottom: '20px' }}>
+            <div ref={calendarRef} style={{ background: 'white', padding: '10px', borderRadius: '8px' }}></div>
+            <style>{`
+              .fc .fc-toolbar-title {
+                font-size: 14px !important;
+                font-weight: bold !important;
+              }
+              .fc .fc-button {
+                font-size: 12px !important;
+                padding: 4px 8px !important;
+              }
+              .fc .fc-col-header-cell-cushion {
+                font-size: 10px !important;
+                padding: 4px !important;
+              }
+              .fc .fc-daygrid-day-number {
+                font-size: 10px !important;
+                font-weight: bold !important;
+                padding: 4px !important;
+              }
+              .fc .fc-daygrid-day-frame {
+                min-height: 80px !important;
+              }
+              .fc-theme-standard td, .fc-theme-standard th {
+                border: 1px solid #ddd !important;
+              }
+              .fc .fc-event-title {
+                font-size: 10px !important;
+                font-weight: bold !important;
+              }
+            `}</style>
+          </div>
+        )
+      )}
 
       <div style={{ marginBottom: '20px' }}>
         <select
@@ -558,7 +667,7 @@ const Todo: React.FC = () => {
                     type="text"
                     disabled={todo.delete_flg}
                     value={todo.startDate}
-                    onClick={(e) => !todo.delete_flg && openDateFieldCalendar(todo.id, 'startDate', e)}
+                    onClick={(e) => !todo.delete_flg && openDateFieldCalendar(todo.id, 'startDate', todo.startDate, e)}
                     readOnly
                     style={{
                       width: '50%',
@@ -578,7 +687,7 @@ const Todo: React.FC = () => {
                     type="text"
                     disabled={todo.delete_flg}
                     value={todo.dueDate}
-                    onClick={(e) => !todo.delete_flg && openDateFieldCalendar(todo.id, 'dueDate', e)}
+                    onClick={(e) => !todo.delete_flg && openDateFieldCalendar(todo.id, 'dueDate', todo.dueDate, e)}
                     readOnly
                     style={{
                       width: '50%',
